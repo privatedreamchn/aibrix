@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
@@ -288,6 +289,11 @@ func (ef *EngineMetricsFetcher) parseMetricFromFamily(allMetrics map[string]*dto
 		return nil, fmt.Errorf("no metric instances found for %s", rawMetricName)
 	}
 
+	// Parse npu metrics
+	if strings.Contains(rawMetricName, "npu") {
+		return parseNpuMetricsFamily(metricFamily, rawMetricName, metric)
+	}
+
 	// Take the first metric instance (could be enhanced to handle multiple instances)
 	firstMetric := metricFamily.Metric[0]
 
@@ -369,4 +375,37 @@ func (ef *EngineMetricsFetcher) fetchAllMetricsFromURL(ctx context.Context, url 
 
 	// Parse using existing Prometheus parser logic
 	return ParseMetricsFromReader(resp.Body)
+}
+
+func parseNpuMetricsFamily(metricFamily *dto.MetricFamily, rawMetricName string, metric Metric) (MetricValue, error) {
+	switch metric.MetricType.Raw {
+	case Gauge, Counter:
+		var results []struct {
+			Value  float64
+			Labels map[string]string
+		}
+		for _, pm := range metricFamily.Metric {
+			value, err := GetCounterGaugeValue(pm, metricFamily.GetType())
+			if err != nil {
+				continue
+			}
+			labels := make(map[string]string)
+			for _, label := range pm.Label {
+				labels[*label.Name] = *label.Value
+			}
+			results = append(results, struct {
+				Value  float64
+				Labels map[string]string
+			}{
+				Value:  value,
+				Labels: labels,
+			})
+		}
+		if len(results) == 0 {
+			return nil, fmt.Errorf("no metrics found for %s", rawMetricName)
+		}
+		return &MultipleSimplesMetricValue{Values: results}, nil
+	default:
+		return nil, fmt.Errorf("unsupported metric type for raw parsing: %v", metric.MetricType.Raw)
+	}
 }

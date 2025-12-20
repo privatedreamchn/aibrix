@@ -98,6 +98,7 @@ var _ MetricValue = (*SimpleMetricValue)(nil)
 var _ MetricValue = (*HistogramMetricValue)(nil)
 var _ MetricValue = (*PrometheusMetricValue)(nil)
 var _ MetricValue = (*LabelValueMetricValue)(nil)
+var _ MetricValue = (*MultipleSimplesMetricValue)(nil)
 
 // SimpleMetricValue represents simple metrics (e.g., gauge or counter).
 type SimpleMetricValue struct {
@@ -262,4 +263,29 @@ func (l *LabelValueMetricValue) GetPrometheusResult() *model.Value {
 
 func (l *LabelValueMetricValue) GetLabelValue() string {
 	return l.Value
+}
+
+type MultipleSimplesMetricValue struct {
+	Values []struct {
+		Value  float64
+		Labels map[string]string // pod_name, chip_id
+	}
+}
+
+func (m *MultipleSimplesMetricValue) GetSimpleValue() float64 { return 0.0 }
+
+func (m *MultipleSimplesMetricValue) GetHistogramValue() *HistogramMetricValue { return nil }
+
+func (m *MultipleSimplesMetricValue) GetPrometheusResult() *model.Value { return nil }
+
+func (m *MultipleSimplesMetricValue) GetLabelValue() string { return "" }
+
+func (m *MultipleSimplesMetricValue) GetMultiValue() map[string]float64 {
+	podMetrics := make(map[string]float64)
+	for _, values := range m.Values {
+		if values.Labels["pod_name"] != "" {
+			podMetrics[values.Labels["pod_name"]] = values.Value
+		}
+	}
+	return podMetrics
 }
