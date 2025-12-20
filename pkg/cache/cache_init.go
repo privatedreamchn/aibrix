@@ -26,6 +26,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
@@ -84,6 +86,8 @@ type Store struct {
 
 	// Model related storage
 	metaModels utils.SyncMap[string, *Model] // model_name -> *Model
+
+	metaNpuExporterPod []*v1.Pod
 
 	// Deploymnent related storage
 	enableProfileCaching bool                                    // Default to load from enableModelGPUProfileCaching, can be configured.
@@ -328,6 +332,10 @@ func InitWithOptions(config *rest.Config, stopCh <-chan struct{}, opts InitOptio
 		if err := initCacheInformers(store, config, stopCh); err != nil {
 			panic(err)
 		}
+		if err := getNpuExporterPods(store, config); err != nil {
+			klog.Errorf("get npu exporter pods failed: %v", err)
+			panic(err)
+		}
 		initMetricsCache(store, stopCh)
 
 		// Initialize profile cache if enabled
@@ -368,6 +376,7 @@ func initMetricsCache(store *Store, stopCh <-chan struct{}) {
 			case <-ticker.C:
 				// Periodically update metrics
 				store.updatePodMetrics()
+				store.collectNpuExporterMetrics()
 				store.updateModelMetrics()
 				if klog.V(5).Enabled() {
 					store.debugInfo()
@@ -541,4 +550,21 @@ func (s *Store) Close() {
 	s.cleanupKVEventSync()
 
 	// Other cleanup can be added here in the future
+}
+
+func getNpuExporterPods(store *Store, config *rest.Config) error {
+	k8sClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	namespace := "npu-exporter"
+	podList, err := k8sClient.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	store.metaNpuExporterPod = nil
+	for i := range podList.Items {
+		store.metaNpuExporterPod = append(store.metaNpuExporterPod, &podList.Items[i])
+	}
+	return nil
 }

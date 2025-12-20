@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strconv"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -45,4 +46,12 @@ func getPodLabel(pod *Pod, labelName string) (string, error) {
 		return "", err
 	}
 	return labelTarget, nil
+}
+
+func getNpuMetricPort(pod *v1.Pod) int {
+	port := pod.Spec.Containers[0].Ports[0].ContainerPort
+	if port == 0 {
+		return defaultMetricPort
+	}
+	return int(port)
 }

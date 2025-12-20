@@ -54,6 +54,8 @@ const (
 	// Realtime metrics
 	RealtimeNumRequestsRunning = "realtime_num_requests_running"
 	RealtimeNormalizedPendings = "realtime_normalized_pendings"
+
+	NPUChipInfoOverrallUtilization = "npu_chip_info_overrall_utilization"
 )
 
 var (
@@ -411,6 +413,17 @@ var (
 				Raw: Gauge,
 			},
 			Description: "Current adaptive bucket size used by VTC algorithm for token normalization",
+		},
+		NPUChipInfoOverrallUtilization: {
+			MetricScope:  PodModelMetricScope,
+			MetricSource: PodRawMetrics,
+			MetricType: MetricType{
+				Raw: Gauge,
+			},
+			EngineMetricsNameMapping: map[string]string{
+				"vllm": NPUChipInfoOverrallUtilization,
+			},
+			Description: "NPU overall utilization",
 		},
 	}
 )

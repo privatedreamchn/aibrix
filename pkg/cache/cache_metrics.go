@@ -23,6 +23,7 @@ import (
 
 	prometheusv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	dto "github.com/prometheus/client_model/go"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 
 	"github.com/vllm-project/aibrix/pkg/constants"
@@ -38,6 +39,7 @@ const (
 	portLabel                           = constants.ModelLabelPort
 	modelLabel                          = constants.ModelLabelName
 	defaultMetricPort                   = 8000
+	defaultNpuExporterPort              = 8082
 	defaultEngineLabelValue             = "vllm"
 	defaultPodMetricRefreshIntervalInMS = 50
 	defaultPodMetricsWorkerCount        = 10
@@ -88,6 +90,15 @@ var (
 		metrics.WaitingLoraAdapters,
 		metrics.RunningLoraAdapters,
 	}
+
+	npuMetricsNames = []string{
+		metrics.NPUChipInfoOverrallUtilization,
+	}
+
+	NpuMetricsNamesSet = map[string]struct{}{
+		metrics.NPUChipInfoOverrallUtilization: {},
+	}
+
 	podMetricRefreshInterval = time.Duration(utils.LoadEnvInt("AIBRIX_POD_METRIC_REFRESH_INTERVAL_MS", defaultPodMetricRefreshIntervalInMS)) * time.Millisecond
 )
 
@@ -525,6 +536,77 @@ func (c *Store) calculatePerSecondRate(pod *Pod, modelName, metricName string, c
 	ratePerSecond := valueDiff / timeDiff
 
 	return ratePerSecond
+}
+
+func (c *Store) collectNpuExporterMetrics() {
+	if len(c.metaNpuExporterPod) == 0 {
+		klog.V(4).Info("Npu-exporter pod is nil")
+		return
+	}
+	for _, pod := range c.metaNpuExporterPod {
+		c.updateMetricsFromNpu(pod)
+	}
+}
+
+func (c *Store) updateMetricsFromNpu(pod *v1.Pod) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	podMetricPort := getNpuMetricPort(pod)
+
+	metricsToFetch := npuMetricsNames
+	endpoint := fmt.Sprintf("%s:%d", pod.Status.PodIP, podMetricPort)
+	result, err := c.engineMetricsFetcher.FetchAllTypedMetrics(ctx, endpoint, "vllm", pod.Name, metricsToFetch)
+	if err != nil {
+		klog.V(4).InfoS("Failed to fetch typed metrics from engine pod",
+			"pod", pod.Name, "podIP", pod.Status.PodIP, "port", podMetricPort, "error", err)
+		cancel()
+		return
+	}
+
+	aggregatedResultByPod := make(map[string]*metrics.EngineMetricsResult)
+
+	for metricName, metricValue := range result.Metrics {
+		if _, ok := NpuMetricsNamesSet[metricName]; !ok {
+			continue
+		}
+		multiCardData, ok := metricValue.(*metrics.MultipleSimpleMetricValue)
+		if !ok {
+			continue
+		}
+		podToValueMap := make(map[string]float64)
+		podDataPointCount := make(map[string]int)
+
+		for _, point := range multiCardData.Values {
+			podName := point.Labels["pod_name"]
+			if podName == "" {
+				continue
+			}
+			podToValueMap[podName] += point.Value
+			podDataPointCount[podName]++
+		}
+		for targetPodName, sumValue := range podToValueMap {
+			avgValue := sumValue / float64(podDataPointCount[targetPodName])
+			aggregatedValue := &metrics.SimpleMetricValue{Value: avgValue}
+
+			if _, exists := aggregatedResultByPod[targetPodName]; !exists {
+				aggregatedResultByPod[targetPodName] = &metrics.EngineMetricsResult{
+					Identifier: targetPodName,
+					Endpoint:   endpoint,
+					EngineType: "vllm",
+					Metrics:    make(map[string]metrics.MetricValue),
+				}
+			}
+			aggregatedResultByPod[targetPodName].Metrics[metricName] = aggregatedValue
+		}
+	}
+	for targetPodName, finalPodResult := range aggregatedResultByPod {
+		c.metaPods.Range(func(key string, metaPod *Pod) bool {
+			if metaPod.Name == targetPodName && utils.FilterReadyPod(metaPod.Pod) {
+				c.updatePodMetricsFromTypedResult(metaPod, finalPodResult)
+				return false
+			}
+			return true
+		})
+	}
 }
 
 // cleanupOldSnapshots removes snapshots that are too old or exceed the maximum count
