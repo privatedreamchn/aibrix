@@ -56,6 +56,7 @@ const (
 	RealtimeNormalizedPendings = "realtime_normalized_pendings"
 
 	NPUChipInfoOverrallUtilization = "npu_chip_info_overrall_utilization"
+	NpuChipInfoProcessInfoNumber   = "npu_chip_info_process_info_num"
 )
 
 var (
@@ -424,6 +425,17 @@ var (
 				"vllm": NPUChipInfoOverrallUtilization,
 			},
 			Description: "NPU overall utilization",
+		},
+		NpuChipInfoProcessInfoNumber: {
+			MetricScope:  PodModelMetricScope,
+			MetricSource: PodRawMetrics,
+			MetricType: MetricType{
+				Raw: Gauge,
+			},
+			EngineMetricsNameMapping: map[string]string{
+				"vllm": NpuChipInfoProcessInfoNumber,
+			},
+			Description: "NPU process info number",
 		},
 	}
 )
