@@ -416,7 +416,7 @@ var (
 			Description: "Current adaptive bucket size used by VTC algorithm for token normalization",
 		},
 		NPUChipInfoOverrallUtilization: {
-			MetricScope:  PodModelMetricScope,
+			MetricScope:  PodMetricScope,
 			MetricSource: PodRawMetrics,
 			MetricType: MetricType{
 				Raw: Gauge,
@@ -427,7 +427,7 @@ var (
 			Description: "NPU overall utilization",
 		},
 		NpuChipInfoProcessInfoNumber: {
-			MetricScope:  PodModelMetricScope,
+			MetricScope:  PodMetricScope,
 			MetricSource: PodRawMetrics,
 			MetricType: MetricType{
 				Raw: Gauge,
