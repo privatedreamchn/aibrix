@@ -427,7 +427,7 @@ var (
 			Description: "NPU overall utilization",
 		},
 		NpuChipInfoProcessInfoNumber: {
-			MetricScope:  PodMetricScope,
+			MetricScope:  PodModelMetricScope,
 			MetricSource: PodRawMetrics,
 			MetricType: MetricType{
 				Raw: Gauge,

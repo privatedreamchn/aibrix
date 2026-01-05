@@ -17,94 +17,82 @@ limitations under the License.
 package routingalgorithms
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 
 	"github.com/vllm-project/aibrix/pkg/cache"
 	"github.com/vllm-project/aibrix/pkg/metrics"
 	"github.com/vllm-project/aibrix/pkg/types"
-	"github.com/vllm-project/aibrix/pkg/utils"
 	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/klog/v2"
 )
 
-const RouterLeastProcess types.RoutingAlgorithm = "least-process"
+const RouterLeastNpuProcess types.RoutingAlgorithm = "least-npu-process"
 
 func init() {
-	Register(RouterLeastProcess, NewLeastProcessRouter)
+	Register(RouterLeastNpuProcess, NewLeastNpuProcessRouter)
 }
 
-type leastProcessRouter struct {
+type leastNpuProcessRouter struct {
 	cache cache.Cache
 }
 
-func NewLeastProcessRouter() (types.Router, error) {
+func NewLeastNpuProcessRouter() (types.Router, error) {
 	c, err := cache.Get()
 	if err != nil {
 		return nil, err
 	}
 
-	return leastProcessRouter{
+	return leastNpuProcessRouter{
 		cache: c,
 	}, nil
 }
 
 // Route process based of least npu process among input ready pods
-func (r leastProcessRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
-	readyPods := readyPodList.All()
-	targetPod := selectTargetPodWithLeastProcessCount(r.cache, readyPods)
+func (r leastNpuProcessRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
+	var targetPod *v1.Pod
+	minNpuProcess := math.MaxFloat64
+	var candidatePods []*v1.Pod
+
+	for _, pod := range readyPodList.All() {
+		NpuProcess, err := r.cache.GetMetricValueByPodModel(pod.Name, pod.Namespace, ctx.Model, metrics.NpuChipInfoProcessInfoNumber)
+		if err != nil {
+			klog.Error(err)
+			continue
+		}
+		totalCache := NpuProcess.GetSimpleValue()
+
+		klog.V(4).Infof("pod: %v, podIP: %v, NpuProcess: %v",
+			pod.Name, pod.Status.PodIP, NpuProcess.GetSimpleValue())
+
+		if totalCache < minNpuProcess {
+			minNpuProcess = totalCache
+			candidatePods = []*v1.Pod{pod}
+		} else if totalCache == minNpuProcess {
+			candidatePods = append(candidatePods, pod)
+		}
+	}
+
+	if len(candidatePods) > 0 {
+		targetPod = candidatePods[rand.Intn(len(candidatePods))]
+	}
 
 	// Use fallback if no valid metrics
 	if targetPod == nil {
 		var err error
-		targetPod, err = SelectRandomPodAsFallback(ctx, readyPods, rand.Intn)
+		targetPod, err = SelectRandomPodAsFallback(ctx, readyPodList.All(), rand.Intn)
 		if err != nil {
 			return "", err
 		}
+		klog.V(4).Infof("select targetPod: %s(%s)", targetPod.Name, targetPod.Status.PodIP)
+		return "", fmt.Errorf("no pods to forward request")
+	} else {
+		klog.V(4).Infof("select targetPod: %s(%s) NpuProcess: %v", targetPod.Name, targetPod.Status.PodIP, minNpuProcess)
 	}
 
+	klog.V(4).Infof("targetPod: %s(%s)", targetPod.Name, targetPod.Status.PodIP)
 	ctx.SetTargetPod(targetPod)
 	return ctx.TargetAddress(), nil
-}
-
-func (r *leastProcessRouter) SubscribedMetrics() []string {
-	return []string{
-		metrics.NpuChipInfoProcessInfoNumber,
-	}
-}
-
-func selectTargetPodWithLeastProcessCount(cache cache.Cache, readyPods []*v1.Pod) *v1.Pod {
-	var targetPod *v1.Pod
-	targetPods := []string{}
-
-	minCount := math.MaxInt32
-	podProcessCount := getProcessCounts(cache, readyPods)
-	klog.V(4).InfoS("selectTargetPodWithLeastProcessCount", "podProcessCount", podProcessCount)
-	for podname, podProcess := range podProcessCount {
-		if podProcess < minCount {
-			minCount = podProcess
-			targetPods = []string{podname}
-		} else if podProcess == minCount {
-			targetPods = append(targetPods, podname)
-		}
-	}
-	if len(targetPods) > 0 {
-		targetPod, _ = utils.FilterPodByName(targetPods[rand.Intn(len(targetPods))], readyPods)
-	}
-	return targetPod
-}
-
-// getProcessCounts returns running npu chip avg process count for each pod tracked by gateway.
-func getProcessCounts(cache cache.Cache, readyPods []*v1.Pod) map[string]int {
-	podProcesstCount := map[string]int{}
-	for _, pod := range readyPods {
-		runningReq, err := cache.GetMetricValueByPod(pod.Name, pod.Namespace, metrics.NpuChipInfoProcessInfoNumber)
-		if err != nil {
-			runningReq = &metrics.SimpleMetricValue{Value: 0}
-		}
-		podProcesstCount[pod.Name] = int(runningReq.GetSimpleValue())
-	}
-
-	return podProcesstCount
 }
