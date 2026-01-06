@@ -92,13 +92,13 @@ var (
 	}
 
 	npuMetricsNames = []string{
-		metrics.NPUChipInfoOverrallUtilization,
+		metrics.NPUChipInfoOverallUtilization,
 		metrics.NpuChipInfoProcessInfoNumber,
 	}
 
 	NpuMetricsNamesSet = map[string]struct{}{
-		metrics.NPUChipInfoOverrallUtilization: {},
-		metrics.NpuChipInfoProcessInfoNumber:   {},
+		metrics.NPUChipInfoOverallUtilization: {},
+		metrics.NpuChipInfoProcessInfoNumber:  {},
 	}
 
 	podMetricRefreshInterval = time.Duration(utils.LoadEnvInt("AIBRIX_POD_METRIC_REFRESH_INTERVAL_MS", defaultPodMetricRefreshIntervalInMS)) * time.Millisecond

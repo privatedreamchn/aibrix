@@ -29,48 +29,48 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const RouterLeastNpuProcess types.RoutingAlgorithm = "least-npu-process"
+const RouterLeastNpuOverallUtilization types.RoutingAlgorithm = "least-npu-overall_utilization"
 
 func init() {
-	Register(RouterLeastNpuProcess, NewLeastNpuProcessRouter)
+	Register(RouterLeastNpuOverallUtilization, NewLeastNpuOverallUtilizationRouter)
 }
 
-type leastNpuProcessRouter struct {
+type leastNpuOverallUtilizationRouter struct {
 	cache cache.Cache
 }
 
-func NewLeastNpuProcessRouter() (types.Router, error) {
+func NewLeastNpuOverallUtilizationRouter() (types.Router, error) {
 	c, err := cache.Get()
 	if err != nil {
 		return nil, err
 	}
 
-	return leastNpuProcessRouter{
+	return leastNpuOverallUtilizationRouter{
 		cache: c,
 	}, nil
 }
 
 // Route process based of least npu process among input ready pods
-func (r leastNpuProcessRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
+func (r leastNpuOverallUtilizationRouter) Route(ctx *types.RoutingContext, readyPodList types.PodList) (string, error) {
 	var targetPod *v1.Pod
-	minNpuProcess := math.MaxFloat64
+	minNpuOverallUtilization := math.MaxFloat64
 	var candidatePods []*v1.Pod
 
 	for _, pod := range readyPodList.All() {
-		npuProcess, err := r.cache.GetMetricValueByPodModel(pod.Name, pod.Namespace, ctx.Model, metrics.NpuChipInfoProcessInfoNumber)
+		npuOverallUtilization, err := r.cache.GetMetricValueByPodModel(pod.Name, pod.Namespace, ctx.Model, metrics.NPUChipInfoOverallUtilization)
 		if err != nil {
 			klog.Error(err)
 			continue
 		}
-		totalCache := npuProcess.GetSimpleValue()
+		totalCache := npuOverallUtilization.GetSimpleValue()
 
 		klog.V(4).Infof("pod: %v, podIP: %v, NpuProcess: %v",
-			pod.Name, pod.Status.PodIP, npuProcess.GetSimpleValue())
+			pod.Name, pod.Status.PodIP, npuOverallUtilization.GetSimpleValue())
 
-		if totalCache < minNpuProcess {
-			minNpuProcess = totalCache
+		if totalCache < minNpuOverallUtilization {
+			minNpuOverallUtilization = totalCache
 			candidatePods = []*v1.Pod{pod}
-		} else if totalCache == minNpuProcess {
+		} else if totalCache == minNpuOverallUtilization {
 			candidatePods = append(candidatePods, pod)
 		}
 	}
@@ -89,7 +89,7 @@ func (r leastNpuProcessRouter) Route(ctx *types.RoutingContext, readyPodList typ
 		klog.V(4).Infof("select targetPod: %s(%s)", targetPod.Name, targetPod.Status.PodIP)
 		return "", fmt.Errorf("no pods to forward request")
 	} else {
-		klog.V(4).Infof("select targetPod: %s(%s) NpuProcess: %v", targetPod.Name, targetPod.Status.PodIP, minNpuProcess)
+		klog.V(4).Infof("select targetPod: %s(%s) NpuProcess: %v", targetPod.Name, targetPod.Status.PodIP, minNpuOverallUtilization)
 	}
 
 	klog.V(4).Infof("targetPod: %s(%s)", targetPod.Name, targetPod.Status.PodIP)
